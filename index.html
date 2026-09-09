@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"/>
 <meta name="theme-color" content="#08121a"/>
-<title>Mission Garage v0.9 PERIODICAL</title>
+<title>Mission Garage v0.9.1 PERIODICAL — Randomized Answers</title>
 <style>
 :root{--bg:#071017;--panel:#14222c;--panel2:#1c2d38;--gold:#ffb51f;--blue:#26aef2;--red:#ff493b;--cream:#f6f0e6;--text:#f7fbfd;--muted:#b9c7d0}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -84,7 +84,7 @@ h2{font-size:clamp(34px,5vw,58px);line-height:1;margin:6px 0}
 .periodicalCard{min-height:260px}.completionBar{height:10px;background:#0b1318;border-radius:999px;overflow:hidden;margin:9px 0}.completionBar>i{display:block;height:100%;background:#55c66a}.subjectProgressLine{display:flex;justify-content:space-between;gap:10px;align-items:center;font-weight:900}.masterySubject .smallmuted{color:#c3d0d7;font-size:14px}
 </style></head><body>
 <div id="app">
-<div class="top"><div><div class="brand">MISSION <span>GARAGE</span></div><div class="subbrand">v0.9 PERIODICAL • GitHub + Supabase Sync</div></div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span id="cloudStatus" class="cloudStatus syncing">☁️ Connecting…</span><button class="topbtn" onclick="show('mom')">👩 MOM'S GARAGE</button></div></div>
+<div class="top"><div><div class="brand">MISSION <span>GARAGE</span></div><div class="subbrand">v0.9.1 PERIODICAL • Randomized Answers + GitHub + Supabase Sync</div></div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span id="cloudStatus" class="cloudStatus syncing">☁️ Connecting…</span><button class="topbtn" onclick="show('mom')">👩 MOM'S GARAGE</button></div></div>
 <section id="home" class="screen active"><div class="hero"><img id="homeImg"><div class="heroText"><h1>Hello,<br>Mechanic!</h1><p>Pick a subject. Each lesson teaches the idea first, gives guided practice, then switches to a school-style Garage Test.</p></div></div><div class="subjectGrid" id="subjectGrid"></div></section>
 <section id="subject" class="screen"><div class="panel"><div class="headerRow"><div><span class="tagPill" id="subjectTag"></span><h2 id="subjectName"></h2></div><button class="topbtn" onclick="show('home')">← SUBJECTS</button></div><div class="lessonGrid" id="lessonGrid"></div></div></section>
 <section id="intro" class="screen"><div class="panel"><div class="headerRow"><div><span class="tagPill" id="introBay"></span><h2 id="introTitle"></h2></div><button class="topbtn" onclick="openSubject(current.subject)">← LESSONS</button></div><div class="missionLayout"><div class="visual"><img id="introImg"><div class="visualBadge" id="introLabel"></div></div><div class="qbox"><div class="qnum">MISSION BRIEF</div><h3 id="introPower"></h3><div class="missionBrief" id="introText"></div><div class="rulebox" id="introRule"></div><div class="conceptList" id="introConcepts"></div><div id="introReport"></div><div class="actions"><button class="btn blue" id="introVoice" onclick="speak(current.brief)">🔊 EMILY VOICE</button><button class="btn quickTestBtn" onclick="jumpCurrentToFinal()">⚡ SKIP TO FINAL TEST</button><button class="btn gold" onclick="startGuided()">START GUIDED PRACTICE →</button></div></div></div></div></section>
@@ -139,7 +139,7 @@ function setCloudStatus(state,msg){
  el.textContent=msg;
 }
 function cloudDate(v){try{return new Date(v).toISOString()}catch(e){return new Date().toISOString()}}
-let current=null,currentSubject=null,gi=0,qi=0,selected=null,answered=false,firstTry=true,score=0,currentMissed=[],originalExamRecord=null,retryMode=false,retryQuestions=[],retryMissed=[];
+let current=null,currentSubject=null,gi=0,qi=0,selected=null,answered=false,firstTry=true,score=0,currentMissed=[],originalExamRecord=null,retryMode=false,retryQuestions=[],retryMissed=[],testPool=[];
 let data=JSON.parse(localStorage.getItem('mg-v04')||'{"tests":0,"scores":[],"wrong":0,"hints":0,"byLesson":{},"history":[],"inProgress":{}}');if(!data.history)data.history=[];if(!data.inProgress)data.inProgress={};
 function save(){localStorage.setItem('mg-v04',JSON.stringify(data))}
 function show(id){try{speechSynthesis.cancel()}catch(e){};document.querySelectorAll('.screen').forEach(x=>x.classList.remove('active'));const t=document.getElementById(id);if(t)t.classList.add('active');document.getElementById('wrongOverlay').classList.remove('show');if(id==='mom')renderDash();requestAnimationFrame(()=>{window.scrollTo(0,0);document.documentElement.scrollTop=0;document.body.scrollTop=0})}
@@ -299,6 +299,7 @@ function saveTestProgress(nextIndex){
    currentMissed:JSON.parse(JSON.stringify(currentMissed||[])),
    retryMode:!!retryMode,
    retryQuestions:JSON.parse(JSON.stringify(retryQuestions||[])),
+   testPool:JSON.parse(JSON.stringify(testPool||[])),
    retryMissed:JSON.parse(JSON.stringify(retryMissed||[])),
    originalExamRecord:originalExamRecord?JSON.parse(JSON.stringify(originalExamRecord)):null,
    total:pool.length,
@@ -324,6 +325,7 @@ function restoreSavedTestProgress(saved){
  currentMissed=Array.isArray(saved.currentMissed)?saved.currentMissed:[];
  retryMode=!!saved.retryMode;
  retryQuestions=Array.isArray(saved.retryQuestions)?saved.retryQuestions:[];
+ testPool=Array.isArray(saved.testPool)&&saved.testPool.length?saved.testPool:randomizedQuestions(current.test);
  retryMissed=Array.isArray(saved.retryMissed)?saved.retryMissed:[];
  originalExamRecord=saved.originalExamRecord||null;
  qi=Math.max(0,Number(saved.qi)||0);
@@ -364,41 +366,22 @@ function answerGuided(i,el){const g=current.guided[gi];if(i===g.c){document.quer
 function nextGuided(){gi++;if(gi>=current.guided.length)return showConcept();renderGuided()}
 function showConcept(){voiceUI();document.getElementById('conceptTitle').textContent=current.title;document.getElementById('conceptPower').textContent=current.power;document.getElementById('conceptMeaning').textContent=current.meaning;document.getElementById('conceptPills').innerHTML=current.concepts.map(x=>`<span>${x}</span>`).join('');show('concept')}
 function speakConcept(){speak('Great job, Mechanic. The school word is '+current.power+'. '+current.meaning+'. Now let us try the Garage Test.')}
+function shuffleArray(arr){ const a=arr.slice(); for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]} return a; }
+function randomizedQuestions(source){ return source.map((orig,originalIndex)=>{ const choices=orig.a.map((text,index)=>({text,index})); const shuffled=shuffleArray(choices); return Object.assign({},orig,{a:shuffled.map(x=>x.text),c:shuffled.findIndex(x=>x.index===orig.c),_originalIndex:originalIndex}); }); }
 function startTest(){
- const saved=getSavedProgress(current.id);
- selected=null;answered=false;
- if(saved){
-   restoreSavedTestProgress(saved);
-   show('test');
-   const pool=activeTestQuestions();
-   if(qi>=pool.length){
-     finishTest();
-     return;
-   }
-   renderTest();
-   document.getElementById('testFeedback').innerHTML='<div class="resumeNotice">💾 Test resumed from your last saved question.</div>'+document.getElementById('testFeedback').innerHTML;
-   return;
- }
- qi=0;score=0;currentMissed=[];retryMode=false;retryQuestions=[];retryMissed=[];originalExamRecord=null;
- show('test');renderTest();
+ const saved=getSavedProgress(current.id); selected=null;answered=false;
+ if(saved){ restoreSavedTestProgress(saved); show('test'); const pool=activeTestQuestions(); if(qi>=pool.length){finishTest();return} renderTest(); document.getElementById('testFeedback').innerHTML='<div class="resumeNotice">💾 Test resumed from your last saved question.</div>'+document.getElementById('testFeedback').innerHTML; return; }
+ qi=0;score=0;currentMissed=[];retryMode=false;retryQuestions=[];retryMissed=[];originalExamRecord=null; testPool=randomizedQuestions(current.test); show('test');renderTest();
 }
-function activeTestQuestions(){
- return retryMode?retryQuestions:current.test;
-}
+function activeTestQuestions(){ return retryMode?retryQuestions:testPool; }
 function renderTest(){
- const pool=activeTestQuestions(),q=pool[qi];selected=null;answered=false;firstTry=true;
- const isSum=!!current.summative;
+ const pool=activeTestQuestions(),q=pool[qi];selected=null;answered=false;firstTry=true; const isSum=!!current.summative;
  document.getElementById('testImg').src=isSum?ASSETS.home:(ASSETS[current.asset]||ASSETS.home);
  document.getElementById('testLabel').textContent=retryMode?'RETRY WRONG ITEMS • NO HINTS':(isSum?'PERIODICAL TEST • NO HINTS':(current.power+' • QUESTION '+(qi+1)));
- document.getElementById('testNum').textContent=(retryMode?'RETRY ':'QUESTION ')+(qi+1)+' OF '+pool.length;
- document.getElementById('testQ').textContent=q.q;
- document.getElementById('testFeedback').innerHTML=retryMode
-   ? '<span style="color:#295b94">WRONG-ITEM REVIEW:</span> Answer again. If it is still wrong, the correct answer will be shown.'
-   : (isSum?'<span style="color:#8a5b00">SUMMATIVE MODE:</span> Read the full question. One answer only. No retries.':'Read first. Then choose.');
- document.getElementById('submitBtn').textContent='SUBMIT';
- const hint=document.getElementById('hintBtn'); if(hint)hint.style.display=(isSum||retryMode)?'none':'inline-block';
- document.getElementById('testAnswers').innerHTML=q.a.map((x,i)=>`<button class="ans" onclick="selectAns(${i},this)">${String.fromCharCode(65+i)}. ${x}</button>`).join('');
- saveTestProgress();
+ document.getElementById('testNum').textContent=(retryMode?'RETRY ':'QUESTION ')+(qi+1)+' OF '+pool.length; document.getElementById('testQ').textContent=q.q;
+ document.getElementById('testFeedback').innerHTML=retryMode?'<span style="color:#295b94">WRONG-ITEM REVIEW:</span> Answer again. If it is still wrong, the correct answer will be shown.':(isSum?'<span style="color:#8a5b00">PERIODICAL MODE:</span> Read the full question. One answer only. No retries.':'Read first. Then choose.');
+ document.getElementById('submitBtn').textContent='SUBMIT'; const hint=document.getElementById('hintBtn'); if(hint)hint.style.display=(isSum||retryMode)?'none':'inline-block';
+ document.getElementById('testAnswers').innerHTML=q.a.map((x,i)=>`<button class="ans" onclick="selectAns(${i},this)">${String.fromCharCode(65+i)}. ${x}</button>`).join(''); saveTestProgress();
 }
 function selectAns(i,el){if(answered)return;selected=i;document.querySelectorAll('#testAnswers .ans').forEach(a=>a.classList.remove('sel'));el.classList.add('sel');saveTestProgress();}
 function simpleHint(){if(current&&current.summative)return;const q=current.test[qi];data.hints++;save();const msg=q.lookback?('LOOK BACK: '+q.lookback):(q.simple||'Think about the easy rule from the lesson.');document.getElementById('testFeedback').textContent='🔎 '+msg;if(current.voice)speak(msg)}
@@ -468,7 +451,7 @@ function finishTest(){
 function startWrongItemsRetry(){
  if(!currentMissed.length)return;
  document.getElementById('scoreOverlay').classList.remove('show');
- retryQuestions=currentMissed.map(x=>Object.assign({},current.test[x.index],{_originalIndex:x.index}));
+ retryQuestions=randomizedQuestions(currentMissed.map(x=>Object.assign({},current.test[x.index],{_originalIndex:x.index})));
  retryMissed=[];retryMode=true;qi=0;score=0;selected=null;answered=false;show('test');renderTest();saveTestProgress();
 }
 function openMissedReview(){
@@ -487,7 +470,7 @@ function closeMissedReview(){
 function restartSummative(){
  document.getElementById('scoreOverlay').classList.remove('show');
  clearTestProgress();
- qi=0;score=0;currentMissed=[];retryMode=false;retryQuestions=[];retryMissed=[];originalExamRecord=null;
+ qi=0;score=0;currentMissed=[];retryMode=false;retryQuestions=[];retryMissed=[];testPool=[];originalExamRecord=null;
  show('test');renderTest();
 }
 function closeScoreAndLessons(){
